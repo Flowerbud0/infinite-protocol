@@ -4,23 +4,35 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#07111f" />
-    <title>无限协议 · v0.1</title>
+    <meta name="description" content="《无限协议》是一款数字连锁、卡牌构筑与核心迭代结合的网页游戏。" />
+    <title>无限协议 · v0.2</title>
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="icon" href="icon-192.png" />
+    <link rel="apple-touch-icon" href="icon-192.png" />
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
     <div class="ambient ambient-a"></div>
     <div class="ambient ambient-b"></div>
+    <div id="effect-layer" class="effect-layer" aria-hidden="true"></div>
+
     <main class="game-shell">
       <header class="topbar">
         <div>
-          <p class="eyebrow">INFINITE PROTOCOL / v0.1</p>
+          <p class="eyebrow">INFINITE PROTOCOL / v0.2</p>
           <h1>无限协议</h1>
         </div>
-        <div class="source-counter" title="转生后可用于永久升级">
-          <span>源代码</span>
+        <button class="source-counter info-target" id="source-help-button" type="button" aria-label="查看永久源代码说明">
+          <span>永久源代码 <i>?</i></span>
           <strong id="source-code">0</strong>
-        </div>
+        </button>
       </header>
+
+      <section class="save-strip" aria-live="polite">
+        <span id="connection-state" class="connection-state online">在线</span>
+        <span id="save-status">等待自动保存</span>
+        <button id="save-manager-button" class="inline-link" type="button">存档管理</button>
+      </section>
 
       <section class="status-grid" aria-label="关卡状态">
         <article class="status-card">
@@ -31,10 +43,19 @@
           <div class="status-line"><span>本层算力</span><b id="score-label">0 / 55</b></div>
           <div class="progress-track"><div id="score-progress" class="progress-fill"></div></div>
         </article>
-        <article class="status-card">
-          <span>运行缓存</span>
+        <article class="status-card info-target" id="run-data-card">
+          <span>待归档 <button class="tiny-help" id="run-data-help" type="button" aria-label="查看待归档源代码说明">?</button></span>
           <strong id="run-data">0</strong>
         </article>
+      </section>
+
+      <section id="coach-panel" class="coach-panel hidden" aria-live="polite">
+        <div class="coach-index" id="coach-index">01</div>
+        <div class="coach-copy">
+          <b id="coach-title">引导标题</b>
+          <p id="coach-text">引导内容</p>
+        </div>
+        <button id="coach-skip" class="coach-skip" type="button">跳过教程</button>
       </section>
 
       <section class="preview-panel" id="preview-panel">
@@ -44,6 +65,7 @@
         </div>
         <div class="formula" id="score-formula">选择芯片以预览协议</div>
         <div class="protocol-list" id="protocol-list"></div>
+        <div class="module-trigger-list" id="module-trigger-list"></div>
       </section>
 
       <section class="hand-section">
@@ -54,22 +76,22 @@
           </div>
           <div class="turn-stats">
             <span>运算 <b id="plays-left">3</b></span>
-            <span>重排 <b id="rerolls-left">2</b></span>
+            <span>换牌 <b id="rerolls-left">2</b></span>
           </div>
         </div>
         <div id="hand" class="hand" aria-label="手牌"></div>
         <p class="selection-help" id="selection-help">点击选择最多 5 张芯片；再次点击可取消。</p>
         <div class="action-row">
-          <button id="reroll-button" class="button secondary" disabled>重排所选</button>
-          <button id="play-button" class="button primary" disabled>执行协议</button>
+          <button id="reroll-button" class="button secondary" type="button" disabled><span>换掉所选</span></button>
+          <button id="play-button" class="button primary" type="button" disabled><span>执行协议</span></button>
         </div>
       </section>
 
       <section class="system-panel">
         <div class="mini-stat"><span>牌组</span><b id="deck-size">12 张</b></div>
-        <div class="mini-stat"><span>已装模块</span><b id="module-count">0</b></div>
-        <button id="module-button" class="text-button">查看模块</button>
-        <button id="rebirth-button" class="text-button danger" disabled>主动转生</button>
+        <div class="mini-stat"><span>局内模块</span><b id="module-count">0</b></div>
+        <button id="module-button" class="text-button" type="button">查看模块</button>
+        <button id="iteration-button" class="text-button danger" type="button" disabled>核心迭代</button>
       </section>
 
       <section class="event-log" aria-live="polite">
@@ -78,9 +100,10 @@
       </section>
 
       <footer>
-        <button id="help-button" class="footer-button">规则说明</button>
-        <span>存档保存在当前浏览器</span>
-        <button id="reset-button" class="footer-button">重置存档</button>
+        <button id="help-button" class="footer-button" type="button">教程与术语</button>
+        <button id="install-button" class="footer-button hidden" type="button">安装到桌面</button>
+        <button id="sound-button" class="footer-button" type="button" aria-pressed="true">音效：开</button>
+        <button id="reset-button" class="footer-button" type="button">重置存档</button>
       </footer>
     </main>
 
@@ -89,6 +112,7 @@
     </div>
 
     <div id="toast" class="toast" aria-live="polite"></div>
+    <div id="score-burst" class="score-burst" aria-hidden="true"></div>
 
     <script src="core.js"></script>
     <script src="game.js"></script>
