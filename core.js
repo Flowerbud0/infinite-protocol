@@ -105,7 +105,7 @@
     const modifiers = [];
 
     if (card.level >= 2 && fusionBoost > 0) {
-      const factor = 1 + fusionBoost * 0.08;
+      const factor = fusionBoostFactor(fusionBoost);
       power *= factor;
       modifiers.push({ key: "fusionBoost", label: `融合校准 ×${formatNumber(factor)}` });
     }
@@ -205,7 +205,7 @@
       fusionBoost,
     }));
     let base = cardDetails.reduce((sum, detail) => sum + detail.power, 0);
-    const globalBaseFactor = 1 + baseBoost * 0.05;
+    const globalBaseFactor = baseBoostFactor(baseBoost);
     base = round(base * globalBaseFactor, 2);
 
     for (const detail of cardDetails) {
@@ -353,6 +353,28 @@
     return Math.max(1, Math.floor((stage + 1) / 2));
   }
 
+  function baseBoostFactor(level) {
+    const clean = Math.max(0, Math.floor(Number(level) || 0));
+    const early = Math.min(clean, 10) * 0.05;
+    const middle = Math.min(Math.max(clean - 10, 0), 20) * 0.02;
+    const frontier = Math.max(clean - 30, 0) * 0.005;
+    return 1 + early + middle + frontier;
+  }
+
+  function fusionBoostFactor(level) {
+    const clean = Math.max(0, Math.floor(Number(level) || 0));
+    const early = Math.min(clean, 5) * 0.08;
+    const middle = Math.min(Math.max(clean - 5, 0), 15) * 0.03;
+    const frontier = Math.max(clean - 20, 0) * 0.0075;
+    return 1 + early + middle + frontier;
+  }
+
+  function sourceEfficiencyFactor(level) {
+    const clean = Math.max(0, Math.floor(Number(level) || 0));
+    if (clean <= 3) return 1 + clean * 0.1;
+    return 1.3 + 0.7 * (1 - Math.pow(0.9, clean - 3));
+  }
+
   function round(value, digits = 0) {
     const factor = Math.pow(10, digits);
     return Math.round((value + Number.EPSILON) * factor) / factor;
@@ -379,5 +401,8 @@
     shuffle,
     sourceReward,
     stageTarget,
+    baseBoostFactor,
+    fusionBoostFactor,
+    sourceEfficiencyFactor,
   };
 });
