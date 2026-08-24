@@ -1,4 +1,4 @@
-const CACHE_NAME = "infinite-protocol-v0.3.1";
+const CACHE_NAME = "infinite-protocol-v0.4.1.2";
 const ASSETS = [
   "./",
   "./index.html",
@@ -6,6 +6,7 @@ const ASSETS = [
   "./core.js",
   "./cloud-config.js",
   "./cloud.js",
+  "./progression.js",
   "./game.js",
   "./manifest.webmanifest",
   "./icon-192.png",
