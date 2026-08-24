@@ -4,23 +4,29 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#07111f" />
-    <meta name="description" content="《无限协议》是一款数字连锁、卡牌构筑与核心迭代结合的网页游戏。" />
-    <title>无限协议 · v0.3</title>
+    <meta name="description" content="《无限协议》是一款数字连锁、卡牌构筑、远征挂机与核心迭代结合的科幻网页游戏。" />
+    <title>无限协议 · v0.4.1</title>
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="icon" href="icon-192.png" />
     <link rel="apple-touch-icon" href="icon-192.png" />
-    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="styles.css?v=0.4.1.2" />
   </head>
   <body>
     <div class="ambient ambient-a"></div>
     <div class="ambient ambient-b"></div>
+    <div class="starfield" aria-hidden="true"></div>
+    <div class="scanlines" aria-hidden="true"></div>
     <div id="effect-layer" class="effect-layer" aria-hidden="true"></div>
 
     <main class="game-shell">
-      <header class="topbar">
-        <div>
-          <p class="eyebrow">INFINITE PROTOCOL / v0.3</p>
-          <h1>无限协议</h1>
+      <header class="topbar command-header">
+        <div class="brand-lockup">
+          <div class="brand-orbit" aria-hidden="true"><i></i></div>
+          <div>
+            <p class="eyebrow">INFINITE PROTOCOL / v0.4.1</p>
+            <h1>无限协议</h1>
+            <span class="sector-label">ORBITAL COMMAND INTERFACE</span>
+          </div>
         </div>
         <button class="source-counter info-target" id="source-help-button" type="button" aria-label="查看永久源代码说明">
           <span>永久源代码 <i>?</i></span>
@@ -34,6 +40,43 @@
         <span id="cloud-status" class="cloud-status">云端未连接</span>
         <button id="account-button" class="inline-link" type="button">登录</button>
         <button id="save-manager-button" class="inline-link" type="button">存档管理</button>
+      </section>
+
+      <section class="command-deck" aria-label="远征与研究中枢">
+        <div class="command-visual" aria-hidden="true">
+          <div class="planet"><i></i></div>
+          <div class="orbit orbit-one"><i></i></div>
+          <div class="orbit orbit-two"><i></i></div>
+        </div>
+        <div class="command-copy">
+          <span class="section-kicker">DEEP SPACE OPERATIONS</span>
+          <h2 id="expedition-headline">远征中枢待命</h2>
+          <p id="expedition-summary">派遣探测单元，在离线期间持续带回研究数据。</p>
+          <div class="expedition-progress"><i id="expedition-progress"></i></div>
+        </div>
+        <div class="research-counter">
+          <span>研究数据</span>
+          <strong id="research-data">0</strong>
+          <small id="offline-rate">6 / 小时</small>
+        </div>
+        <div class="command-actions">
+          <button id="expedition-button" class="console-button primary-console" type="button"><span>远征控制</span><b id="expedition-action">选择区域</b></button>
+          <button id="tech-button" class="console-button" type="button"><span>科技矩阵</span><b id="tech-progress">0 / 19</b></button>
+        </div>
+      </section>
+
+      <section class="operations-board" aria-label="每日行动与档案">
+        <button id="daily-button" class="operation-tile" type="button">
+          <span><i class="operation-pulse"></i> DAILY OPERATIONS</span>
+          <b id="daily-summary">每日行动 0 / 3</b>
+          <em id="daily-hint">完成行动以获取研究数据</em>
+        </button>
+        <button id="archive-button" class="operation-tile archive-tile" type="button">
+          <span>ARCHIVE MATRIX</span>
+          <b>协议档案</b>
+          <em id="archive-progress">0 项记录</em>
+          <i id="achievement-alert" class="achievement-alert hidden">!</i>
+        </button>
       </section>
 
       <section class="status-grid" aria-label="关卡状态">
@@ -116,9 +159,10 @@
     <div id="toast" class="toast" aria-live="polite"></div>
     <div id="score-burst" class="score-burst" aria-hidden="true"></div>
 
-    <script src="cloud-config.js?v=0.3.1"></script>
-    <script src="cloud.js?v=0.3.1"></script>
-    <script src="core.js?v=0.3.1"></script>
-    <script src="game.js?v=0.3.1"></script>
+    <script src="cloud-config.js?v=0.4.1.2"></script>
+    <script src="cloud.js?v=0.4.1.2"></script>
+    <script src="core.js?v=0.4.1.2"></script>
+    <script src="progression.js?v=0.4.1.2"></script>
+    <script src="game.js?v=0.4.1.2"></script>
   </body>
 </html>
