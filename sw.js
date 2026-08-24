@@ -1,4 +1,4 @@
-const CACHE_NAME = "infinite-protocol-v0.3.0";
+const CACHE_NAME = "infinite-protocol-v0.3.1";
 const ASSETS = [
   "./",
   "./index.html",
@@ -36,6 +36,11 @@ self.addEventListener("fetch", (event) => {
         caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
         return response;
       })
-      .catch(() => caches.match(event.request).then((cached) => cached || caches.match("./index.html")))
+      .catch(async () => {
+        const cached = await caches.match(event.request);
+        if (cached) return cached;
+        if (event.request.mode === "navigate") return caches.match("./index.html");
+        return Response.error();
+      })
   );
 });
