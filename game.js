@@ -4,7 +4,7 @@
   const Core = window.GameCore;
   const SAVE_KEY = "infinite-protocol-save-v1";
   const BACKUP_KEY = "infinite-protocol-save-backup-v2";
-  const SAVE_VERSION = 2;
+  const SAVE_VERSION = 3;
   const TUTORIAL_VERSION = 2;
   const HAND_SIZE = 6;
   const MAX_SELECTED = 5;
@@ -14,6 +14,8 @@
     sourceHelpButton: document.querySelector("#source-help-button"),
     saveStatus: document.querySelector("#save-status"),
     connectionState: document.querySelector("#connection-state"),
+    cloudStatus: document.querySelector("#cloud-status"),
+    accountButton: document.querySelector("#account-button"),
     saveManagerButton: document.querySelector("#save-manager-button"),
     stageValue: document.querySelector("#stage-value"),
     scoreLabel: document.querySelector("#score-label"),
@@ -237,21 +239,65 @@
     };
   }
 
-  function writeSave() {
+  function writeSave(options = {}) {
     try {
       save.version = SAVE_VERSION;
-      save.lastSavedAt = new Date().toISOString();
+      if (!options.preserveTimestamp || !save.lastSavedAt) save.lastSavedAt = new Date().toISOString();
       if (state.active) save.runSnapshot = serializeRun();
       else if (!runDecisionPending) save.runSnapshot = null;
       const serialized = JSON.stringify(save);
       localStorage.setItem(SAVE_KEY, serialized);
       localStorage.setItem(BACKUP_KEY, serialized);
       updateSaveStatus("已自动保存");
+      if (options.cloud !== false && window.IPCloud) window.IPCloud.queueSync();
       return true;
     } catch (error) {
       updateSaveStatus("保存失败，请导出存档", true);
       return false;
     }
+  }
+
+  function currentSaveCopy() {
+    const snapshot = state.active ? serializeRun() : save.runSnapshot;
+    return sanitizeSave({ ...save, runSnapshot: snapshot });
+  }
+
+  function replaceSaveFromCloud(raw, message) {
+    save = sanitizeSave(raw);
+    state = createEmptyState();
+    runDecisionPending = Boolean(save.runSnapshot && save.runSnapshot.active);
+    writeSave({ cloud: false, preserveTimestamp: true });
+    sessionStorage.setItem("infinite-protocol-cloud-message", message || "已载入云端进度");
+    window.location.reload();
+  }
+
+  function setCloudState(cloudState, message) {
+    if (!elements.cloudStatus || !elements.accountButton) return;
+    elements.cloudStatus.className = "cloud-status";
+    if (!cloudState.configured) {
+      elements.cloudStatus.textContent = "云端待配置";
+      elements.accountButton.textContent = "云存档";
+      return;
+    }
+    if (cloudState.conflict) {
+      elements.cloudStatus.textContent = "存档待选择";
+      elements.cloudStatus.classList.add("warning");
+      elements.accountButton.textContent = "处理冲突";
+      return;
+    }
+    if (cloudState.syncing) {
+      elements.cloudStatus.textContent = "云端同步中";
+      elements.cloudStatus.classList.add("syncing");
+      return;
+    }
+    if (cloudState.signedIn) {
+      elements.cloudStatus.textContent = message || "云端已同步";
+      elements.cloudStatus.classList.add("synced");
+      elements.accountButton.textContent = "账号";
+      return;
+    }
+    elements.cloudStatus.textContent = message || "云端未登录";
+    elements.accountButton.textContent = "登录";
   }
 
   function updateSaveStatus(prefix) {
@@ -956,8 +1002,11 @@
     showModal(`
       <p class="eyebrow">SAVE CONTROL</p>
       <h2 id="modal-title">存档管理</h2>
+      <section id="cloud-account-panel" class="cloud-account-panel" aria-live="polite">
+        <p>正在读取云端状态……</p>
+      </section>
       <div class="save-health"><b>双份本地自动保存已开启</b><span>${save.lastSavedAt ? `最近保存：${new Date(save.lastSavedAt).toLocaleString("zh-CN")}` : "尚未生成存档"}</span></div>
-      <p>同一设备和浏览器会自动恢复。换设备、换浏览器或清理网站数据前，请导出存档码；在新设备粘贴后即可迁移。</p>
+      <p>本机存档会始终保留，登录后还会自动同步云端。清理网站数据前仍建议保留一份存档码。</p>
       <textarea id="save-code" class="save-code" placeholder="点击“生成存档码”，或在这里粘贴需要导入的存档码。"></textarea>
       <div class="modal-actions split-actions">
         <button class="button secondary" id="manual-save">立即保存</button>
@@ -967,6 +1016,7 @@
         <button class="button secondary full" id="close-modal">返回</button>
       </div>
     `);
+    if (window.IPCloud) window.IPCloud.renderManager(elements.modal.querySelector("#cloud-account-panel"));
     const area = elements.modal.querySelector("#save-code");
     elements.modal.querySelector("#manual-save").addEventListener("click", () => {
       writeSave();
@@ -1263,6 +1313,7 @@
   elements.helpButton.addEventListener("click", showHelp);
   elements.sourceHelpButton.addEventListener("click", showSourceHelp);
   elements.runDataHelp.addEventListener("click", showRunDataHelp);
+  elements.accountButton.addEventListener("click", showSaveManager);
   elements.saveManagerButton.addEventListener("click", showSaveManager);
   elements.coachSkip.addEventListener("click", skipTutorial);
   elements.installButton.addEventListener("click", installPwa);
@@ -1273,11 +1324,12 @@
     if (save.soundEnabled) playTone("select");
   });
   elements.resetButton.addEventListener("click", () => {
-    if (!window.confirm("确定清除全部源代码、迭代增益、教程状态和当前对局吗？此操作无法撤销。")) return;
+    if (!window.confirm("确定清除全部源代码、迭代增益、教程状态和当前对局吗？登录云存档时，空白进度也会同步到云端。此操作无法撤销。")) return;
     localStorage.removeItem(SAVE_KEY);
     localStorage.removeItem(BACKUP_KEY);
     save = defaultSave();
     state = createEmptyState();
+    writeSave();
     showToast("存档已重置");
     showIntro();
     render();
@@ -1290,6 +1342,19 @@
   setupPwa();
   updateConnectionState();
   render();
+  if (window.IPCloud) {
+    window.IPCloud.init({
+      getSave: currentSaveCopy,
+      replaceSave: replaceSaveFromCloud,
+      setCloudState,
+      notify: showToast,
+    });
+  }
+  const cloudMessage = sessionStorage.getItem("infinite-protocol-cloud-message");
+  if (cloudMessage) {
+    sessionStorage.removeItem("infinite-protocol-cloud-message");
+    showToast(cloudMessage);
+  }
   if (save.lastSavedAt) updateSaveStatus("已读取存档");
   if (save.runSnapshot && save.runSnapshot.active) showResumeModal();
   else showIntro();

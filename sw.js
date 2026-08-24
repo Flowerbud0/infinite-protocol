@@ -1,9 +1,11 @@
-const CACHE_NAME = "infinite-protocol-v0.2.0";
+const CACHE_NAME = "infinite-protocol-v0.3.0";
 const ASSETS = [
   "./",
   "./index.html",
   "./styles.css",
   "./core.js",
+  "./cloud-config.js",
+  "./cloud.js",
   "./game.js",
   "./manifest.webmanifest",
   "./icon-192.png",

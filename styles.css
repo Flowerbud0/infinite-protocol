@@ -99,6 +99,10 @@ h2 { margin: 2px 0 0; font-size: 18px; }
 .connection-state { padding: 2px 6px; border-radius: 20px; }
 .connection-state.online { color: var(--green); background: rgba(101,245,189,.08); }
 .connection-state.offline { color: var(--amber); background: rgba(255,199,102,.08); }
+.cloud-status { color: #6f91a7; white-space: nowrap; }
+.cloud-status.synced { color: var(--green); }
+.cloud-status.syncing { color: var(--cyan); }
+.cloud-status.warning { color: var(--amber); }
 .inline-link, .inline-action {
   margin-left: auto;
   border: 0;
@@ -107,6 +111,8 @@ h2 { margin: 2px 0 0; font-size: 18px; }
   cursor: pointer;
   font-size: inherit;
 }
+.save-strip .inline-link { margin-left: 0; }
+.save-strip #account-button { margin-left: auto; }
 .inline-action { display: block; margin: 10px 0 0 auto; padding: 7px; font-size: 11px; }
 .inline-action:disabled { opacity: .4; }
 .save-pulse { color: var(--green); }
@@ -347,6 +353,51 @@ footer { display: flex; justify-content: space-between; align-items: center; gap
 .save-code.invalid { border-color: var(--danger); }
 .split-actions { grid-template-columns: 1fr 1fr; }
 .split-actions .full { grid-column: 1 / -1; }
+
+.cloud-account-panel {
+  margin: 12px 0;
+  padding: 12px;
+  border: 1px solid rgba(168,121,255,.34);
+  border-radius: 9px;
+  background: linear-gradient(145deg, rgba(42,29,74,.3), rgba(8,26,42,.62));
+}
+.cloud-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.cloud-head b { color: #d4c3ff; font-size: 13px; }
+.status-pill {
+  padding: 3px 7px;
+  border: 1px solid rgba(101,230,255,.3);
+  border-radius: 20px;
+  color: var(--cyan);
+  font-size: 8px;
+  letter-spacing: .08em;
+}
+.status-pill.success { border-color: rgba(101,245,189,.35); color: var(--green); }
+.status-pill.warning { border-color: rgba(255,199,102,.35); color: var(--amber); }
+.status-pill.muted { color: var(--muted); }
+.field-label { display: block; margin: 10px 0 5px; color: var(--muted); font-size: 10px; }
+.cloud-input {
+  width: 100%;
+  margin-bottom: 9px;
+  padding: 11px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  outline: none;
+  color: var(--text);
+  background: rgba(2,12,21,.75);
+  font: inherit;
+}
+.cloud-input:focus { border-color: var(--violet); }
+.cloud-note { color: #718fa3 !important; font-size: 9px !important; }
+.account-email { margin: 5px 0 !important; color: var(--cyan) !important; word-break: break-all; }
+.cloud-conflict {
+  margin: 10px 0;
+  padding: 10px;
+  border: 1px solid rgba(255,199,102,.42);
+  border-radius: 8px;
+  background: rgba(255,199,102,.07);
+}
+.cloud-conflict b { color: var(--amber); font-size: 12px; }
+.cloud-conflict .modal-actions { margin-top: 9px; }
 
 .score-burst {
   position: fixed;

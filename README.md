@@ -1,8 +1,17 @@
-# 无限协议 v0.2
+# 无限协议 v0.3
 
 一款手机竖屏优先、同时兼容电脑浏览器的数字卡牌原型。
 
 在线试玩：<https://flowerbud0.github.io/infinite-protocol/>
+
+## v0.3 更新
+
+- 新增邮箱免密码登录和云端账号入口。
+- 本地双备份继续保留，并在登录后自动同步Supabase云存档。
+- 首次登录不会静默覆盖数据，而是让玩家选择本机或云端进度。
+- 使用递增版本号检测多设备同时修改造成的冲突。
+- 老版本本地存档可以直接迁移到云端，存档码继续作为独立备份。
+- 为后续挂机系统预留可信服务器时间接口。
 
 ## v0.2 更新
 
@@ -28,4 +37,11 @@
 - `manifest.webmanifest`、`sw.js`：PWA 安装与离线缓存。
 - `tests/core.test.js`：核心规则自动测试。
 
-当前仍是玩法验证版本，不包含账号、云端同步、付费或正式美术资源。
+当前仍是玩法验证版本，不包含付费或正式美术资源。云存档只保护账号归属和同步冲突；在加入挂机资源前，还需要把重要货币结算迁移到服务端函数。
+
+## 云存档部署
+
+1. 创建Supabase项目，在SQL Editor执行 `schema.sql`。
+2. 在Authentication的URL设置中加入正式地址 `https://flowerbud0.github.io/infinite-protocol/`。
+3. 从项目设置复制Project URL和publishable/anon key，填入 `cloud-config.js`。
+4. 只可在网页端使用publishable/anon key，绝不能提交service_role key。
