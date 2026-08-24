@@ -2,9 +2,10 @@
   "use strict";
 
   const Core = window.GameCore;
+  const Progression = window.GameProgression;
   const SAVE_KEY = "infinite-protocol-save-v1";
   const BACKUP_KEY = "infinite-protocol-save-backup-v2";
-  const SAVE_VERSION = 3;
+  const SAVE_VERSION = 5;
   const TUTORIAL_VERSION = 2;
   const HAND_SIZE = 6;
   const MAX_SELECTED = 5;
@@ -17,6 +18,21 @@
     cloudStatus: document.querySelector("#cloud-status"),
     accountButton: document.querySelector("#account-button"),
     saveManagerButton: document.querySelector("#save-manager-button"),
+    researchData: document.querySelector("#research-data"),
+    offlineRate: document.querySelector("#offline-rate"),
+    expeditionHeadline: document.querySelector("#expedition-headline"),
+    expeditionSummary: document.querySelector("#expedition-summary"),
+    expeditionProgress: document.querySelector("#expedition-progress"),
+    expeditionButton: document.querySelector("#expedition-button"),
+    expeditionAction: document.querySelector("#expedition-action"),
+    techButton: document.querySelector("#tech-button"),
+    techProgress: document.querySelector("#tech-progress"),
+    dailyButton: document.querySelector("#daily-button"),
+    dailySummary: document.querySelector("#daily-summary"),
+    dailyHint: document.querySelector("#daily-hint"),
+    archiveButton: document.querySelector("#archive-button"),
+    archiveProgress: document.querySelector("#archive-progress"),
+    achievementAlert: document.querySelector("#achievement-alert"),
     stageValue: document.querySelector("#stage-value"),
     scoreLabel: document.querySelector("#score-label"),
     scoreProgress: document.querySelector("#score-progress"),
@@ -66,21 +82,35 @@
     starterModule: false,
     rewardRefresh: false,
     rewardExpansion: false,
+    corePower: 0,
+    coreArchive: 0,
   });
 
   const defaultSave = () => ({
     version: SAVE_VERSION,
     sourceCode: 0,
     totalIterations: 0,
+    masteryCycles: 0,
     bestStage: 0,
     tutorialVersion: 0,
     lastSavedAt: null,
     soundEnabled: true,
     upgrades: defaultUpgrades(),
+    mastery: { sync: 0, sequence: 0, fusion: 0 },
+    meta: Progression.defaultMeta(),
     runSnapshot: null,
   });
 
   let save = loadSave();
+  const offlineReport = Progression.offlineReward(save.meta);
+  Progression.ensureDaily(save.meta);
+  if (offlineReport.amount > 0) {
+    save.meta.researchData += offlineReport.amount;
+    save.meta.stats.offlineResearch += offlineReport.amount;
+    save.meta.stats.researchEarned += offlineReport.amount;
+    Progression.progressDaily(save.meta, "research", offlineReport.amount);
+  }
+  save.meta.lastSeenAt = new Date().toISOString();
   let state = createEmptyState();
   let runDecisionPending = Boolean(save.runSnapshot && save.runSnapshot.active);
   let cardSerial = 0;
@@ -121,6 +151,21 @@
     return Math.min(max, Math.max(min, Math.floor(number)));
   }
 
+  function masteryPointsEarned(cycles = save ? save.masteryCycles : 0, bestStage = save ? save.bestStage : 0) {
+    return Progression.masteryPoints(cycles, bestStage);
+  }
+
+  function sanitizeMastery(raw, earned) {
+    const source = raw && typeof raw === "object" ? raw : {};
+    const result = { sync: 0, sequence: 0, fusion: 0 };
+    let remaining = Math.max(0, earned);
+    ["sync", "sequence", "fusion"].forEach((key) => {
+      result[key] = Math.min(20, remaining, clampNumber(source[key], 0, 20));
+      remaining -= result[key];
+    });
+    return result;
+  }
+
   function sanitizeSave(raw) {
     const base = defaultSave();
     if (!raw || typeof raw !== "object") return base;
@@ -129,27 +174,35 @@
     upgrades.arithmetic = Boolean(upgrades.arithmetic);
     upgrades.doubling = Boolean(upgrades.doubling);
     upgrades.advancedModules = Boolean(upgrades.advancedModules);
-    upgrades.baseBoost = clampNumber(upgrades.baseBoost, 0, 10);
+    upgrades.baseBoost = clampNumber(upgrades.baseBoost, 0, 999);
     upgrades.extraReroll = typeof oldExtraReroll === "boolean"
       ? (oldExtraReroll ? 1 : 0)
       : clampNumber(upgrades.extraReroll, 0, 2);
-    upgrades.sourceEfficiency = clampNumber(upgrades.sourceEfficiency, 0, 3);
-    upgrades.fusionCalibration = clampNumber(upgrades.fusionCalibration, 0, 5);
+    upgrades.sourceEfficiency = clampNumber(upgrades.sourceEfficiency, 0, 999);
+    upgrades.fusionCalibration = clampNumber(upgrades.fusionCalibration, 0, 999);
+    upgrades.corePower = clampNumber(upgrades.corePower, 0, 999);
+    upgrades.coreArchive = clampNumber(upgrades.coreArchive, 0, 999);
     upgrades.starterFusion = Boolean(upgrades.starterFusion);
     upgrades.starterModule = Boolean(upgrades.starterModule);
     upgrades.rewardRefresh = Boolean(upgrades.rewardRefresh);
     upgrades.rewardExpansion = Boolean(upgrades.rewardExpansion);
 
+    const totalIterations = clampNumber(raw.totalIterations ?? raw.totalRebirths, 0, 1e9);
+    const masteryCycles = clampNumber(raw.masteryCycles ?? totalIterations, 0, 1e9);
+    const bestStage = clampNumber(raw.bestStage, 0, 1e6);
     return {
       ...base,
       version: SAVE_VERSION,
       sourceCode: clampNumber(raw.sourceCode, 0, 1e12),
-      totalIterations: clampNumber(raw.totalIterations ?? raw.totalRebirths, 0, 1e9),
-      bestStage: clampNumber(raw.bestStage, 0, 1e6),
+      totalIterations,
+      masteryCycles,
+      bestStage,
       tutorialVersion: clampNumber(raw.tutorialVersion, 0, TUTORIAL_VERSION),
       lastSavedAt: typeof raw.lastSavedAt === "string" ? raw.lastSavedAt : null,
       soundEnabled: raw.soundEnabled !== false,
       upgrades,
+      mastery: sanitizeMastery(raw.mastery, masteryPointsEarned(masteryCycles, bestStage)),
+      meta: Progression.sanitizeMeta(raw.meta),
       runSnapshot: sanitizeRunSnapshot(raw.runSnapshot),
     };
   }
@@ -243,6 +296,7 @@
     try {
       save.version = SAVE_VERSION;
       if (!options.preserveTimestamp || !save.lastSavedAt) save.lastSavedAt = new Date().toISOString();
+      save.meta.lastSeenAt = new Date().toISOString();
       if (state.active) save.runSnapshot = serializeRun();
       else if (!runDecisionPending) save.runSnapshot = null;
       const serialized = JSON.stringify(save);
@@ -300,6 +354,15 @@
     elements.accountButton.textContent = "登录";
   }
 
+  function setTrustedTime(value) {
+    const parsed = Date.parse(value);
+    if (!Number.isFinite(parsed)) return;
+    const previousDate = save.meta.daily.date;
+    Progression.ensureDaily(save.meta, parsed);
+    if (save.meta.daily.date !== previousDate) writeSave({ cloud: false });
+    renderMetaDashboard();
+  }
+
   function updateSaveStatus(prefix) {
     if (!elements.saveStatus) return;
     const stamp = save.lastSavedAt ? new Date(save.lastSavedAt) : new Date();
@@ -340,10 +403,13 @@
       const pair = state.deck.filter((card) => card.value === value).slice(0, 2);
       state.deck = state.deck.filter((card) => !pair.some((picked) => picked.id === card.id));
       state.deck.push(newCard(value, 2));
+      addDiscovery(save.meta.discoveries.chipLevels, 2);
     }
     if (save.upgrades.starterModule) {
       const basic = Object.keys(Core.MODULES).filter((key) => !Core.MODULES[key].advanced);
-      state.modules.push(Core.shuffle(basic)[0]);
+      const starterModule = Core.shuffle(basic)[0];
+      state.modules.push(starterModule);
+      addDiscovery(save.meta.discoveries.modules, starterModule);
     }
 
     setupStage({ tutorialOpening: tutorial });
@@ -414,7 +480,34 @@
   }
 
   function currentAnalysis() {
-    return Core.analyzeHand(selectedCards(), analysisOptions());
+    const cards = selectedCards();
+    const analysis = Core.analyzeHand(cards, analysisOptions());
+    const memoryLevel = save.meta.technologies.protocolMemory;
+    if (memoryLevel > 0 && analysis.score > 0) {
+      const factor = 1 + Math.min(memoryLevel, 5) * 0.02 + Math.max(memoryLevel - 5, 0) * 0.01;
+      analysis.score = Math.floor(analysis.score * factor);
+      analysis.finalFactors.push({ name: "协议记忆", value: Number(factor.toFixed(2)) });
+    }
+    if (save.upgrades.corePower > 0 && analysis.score > 0) {
+      const factor = 1 + save.upgrades.corePower * 0.0075;
+      analysis.score = Math.floor(analysis.score * factor);
+      analysis.finalFactors.push({ name: "核心深度", value: Number(factor.toFixed(3)) });
+    }
+    const protocolNames = analysis.protocols.map((protocol) => protocol.name).join("|");
+    const masteryChecks = [
+      ["sync", /同步/, "同步专精"],
+      ["sequence", /连续链|等距链|倍增链/, "序列专精"],
+      ["fusion", cards.some((card) => card.level >= 2), "融合专精"],
+    ];
+    masteryChecks.forEach(([key, condition, name]) => {
+      const active = condition instanceof RegExp ? condition.test(protocolNames) : condition;
+      const level = save.mastery[key];
+      if (!active || level <= 0 || analysis.score <= 0) return;
+      const factor = Progression.masteryFactor(level);
+      analysis.score = Math.floor(analysis.score * factor);
+      analysis.finalFactors.push({ name, value: Number(factor.toFixed(2)) });
+    });
+    return analysis;
   }
 
   function tutorialSelectionComplete() {
@@ -468,6 +561,23 @@
     drawToHand();
   }
 
+  function addDiscovery(list, value) {
+    if (!list.includes(value)) list.push(value);
+  }
+
+  function recordAnalysisProgress(analysis, cards) {
+    save.meta.stats.plays += 1;
+    save.meta.stats.protocols += analysis.protocols.length;
+    save.meta.stats.highestScore = Math.max(save.meta.stats.highestScore, analysis.score);
+    if (analysis.overclock) save.meta.stats.overclocks += 1;
+    analysis.protocols.forEach((protocol) => addDiscovery(save.meta.discoveries.protocols, protocol.name));
+    cards.forEach((card) => addDiscovery(save.meta.discoveries.chipLevels, card.level));
+    save.meta.discoveries.chipLevels.sort((a, b) => a - b);
+    Progression.progressDaily(save.meta, "play", 1);
+    Progression.progressDaily(save.meta, "protocol", analysis.protocols.length);
+    if (analysis.overclock) Progression.progressDaily(save.meta, "overclock", 1);
+  }
+
   function playSelected() {
     if (!state.active || state.phase !== "playing" || !state.selected.size || state.playsLeft <= 0) return;
     if (state.tutorialMode && state.tutorialStep === "select") {
@@ -477,6 +587,7 @@
 
     state.phase = "resolving";
     const analysis = currentAnalysis();
+    recordAnalysisProgress(analysis, selectedCards());
     state.stageScore += analysis.score;
     state.playsLeft -= 1;
     const protocolText = analysis.protocols.length
@@ -536,6 +647,7 @@
     state.rewardChosen = false;
     state.lastRewardText = "";
     save.bestStage = Math.max(save.bestStage, state.stage);
+    save.meta.stats.stagesCleared += 1;
     setMessage(`层级 ${state.stage} 已突破，${reward} 段源代码写入待归档缓存。`);
     showSuccessEffect();
     playTone("success");
@@ -638,15 +750,18 @@
     state.rewardChosen = true;
     if (reward.type === "module") {
       state.modules.push(reward.key);
+      addDiscovery(save.meta.discoveries.modules, reward.key);
       state.lastRewardText = `局内模块“${reward.title}”已安装，本轮结束后重置。`;
     } else if (reward.type === "chip") {
       state.deck.push(newCard(reward.value));
+      addDiscovery(save.meta.discoveries.chipLevels, 1);
       state.lastRewardText = `${reward.value} 号芯片已写入本轮牌组。`;
     } else if (reward.type === "fusion") {
       const picked = state.deck.filter((card) => reward.cardIds.includes(card.id));
       if (picked.length === 2) {
         state.deck = state.deck.filter((card) => !reward.cardIds.includes(card.id));
         state.deck.push(newCard(reward.value, reward.level + 1));
+        addDiscovery(save.meta.discoveries.chipLevels, reward.level + 1);
         state.lastRewardText = `${reward.value} 号 MK-${roman(reward.level + 1)} 融合完成。`;
       } else {
         state.lastRewardText = "融合材料状态已变化，本次保留原牌组。";
@@ -697,10 +812,12 @@
     runDecisionPending = false;
     state.phase = "ended";
     const efficiencyLevel = save.upgrades.sourceEfficiency;
-    const efficiencyBonus = efficiencyLevel > 0 ? Math.max(1, Math.floor(state.runData * efficiencyLevel * 0.1)) : 0;
-    const gained = state.runData + efficiencyBonus;
+    const efficiencyFactor = Core.sourceEfficiencyFactor(efficiencyLevel) * (1 + save.upgrades.coreArchive * 0.005);
+    const gained = Math.max(state.runData, Math.floor(state.runData * efficiencyFactor));
+    const efficiencyBonus = Math.max(0, gained - state.runData);
     save.sourceCode += gained;
     save.totalIterations += 1;
+    if (voluntary || state.runData > 0) save.masteryCycles += 1;
     save.bestStage = Math.max(save.bestStage, voluntary ? state.stage : Math.max(0, state.stage - 1));
     state.tutorialNeedsUpgrade = state.tutorialMode && save.tutorialVersion < TUTORIAL_VERSION && gained >= 3;
     save.runSnapshot = null;
@@ -729,6 +846,8 @@
       <div class="currency-explain"><b>永久源代码：${save.sourceCode}</b><span>用于购买下方永久生效的“迭代增益”。购买后无需装备。</span></div>
       <h3>迭代增益</h3>
       <div class="upgrade-grid" id="upgrade-grid"></div>
+      <h3>核心专精</h3>
+      <div id="mastery-grid"></div>
       <div class="modal-actions">
         <button class="button primary" id="new-run-button" ${state.tutorialNeedsUpgrade ? "disabled" : ""}>${tutorialRetry ? "重新开始互动教程" : "启动新一轮协议"}</button>
       </div>
@@ -736,6 +855,7 @@
       ${tutorialRetry ? '<p class="required-hint">这次未获得足够源代码购买增益；重新挑战时教程会继续。</p>' : ""}
     `);
     renderUpgradeGrid();
+    renderMasteryGrid();
     elements.modal.querySelector("#new-run-button").addEventListener("click", () => startRun(tutorialRetry));
   }
 
@@ -752,19 +872,41 @@
     };
   }
 
+  function softUpgradeCost(key, level) {
+    const profiles = {
+      baseBoost: [4, 4, 10, 50, 1.22],
+      fusionCalibration: [7, 6, 5, 42, 1.24],
+      sourceEfficiency: [10, 10, 3, 45, 1.28],
+      corePower: [25, 0, 0, 25, 1.28],
+      coreArchive: [30, 0, 0, 30, 1.3],
+    };
+    const profile = profiles[key];
+    if (!profile) return Infinity;
+    const [base, step, threshold, frontierBase, growth] = profile;
+    if (level < threshold) return base + level * step;
+    return Math.min(1e12, Math.floor(frontierBase * Math.pow(growth, Math.max(0, level - threshold))));
+  }
+
+  function softLevelUpgrade(key, name, category, description, locked = false) {
+    const level = save.upgrades[key];
+    return { key, name: `${name} LV.${level}`, category, cost: softUpgradeCost(key, level), description, bought: false, locked };
+  }
+
   function upgradeDefinitions() {
     return [
       { key: "arithmetic", name: "解析：等距链", category: "协议解锁", cost: 3, description: "识别 2-5-8 等间距数字，开放新的叠加路线。", bought: save.upgrades.arithmetic },
       { key: "doubling", name: "解析：倍增链", category: "协议解锁", cost: 6, description: "识别 1-2-4-8 等翻倍序列，难度高、倍率也高。", bought: save.upgrades.doubling },
       { key: "advancedModules", name: "高级模块库", category: "协议解锁", cost: 5, description: "将极简内核、量子超频器、级联核心和融合晶格加入局内奖励池。", bought: save.upgrades.advancedModules },
-      levelUpgrade("baseBoost", "基础校准", "性能调校", "所有芯片基础算力永久提高 5%。", 10, 4, 4),
-      levelUpgrade("fusionCalibration", "融合校准", "性能调校", "每级使 MK-II 及以上芯片基础算力提高 8%。", 5, 7, 6),
-      levelUpgrade("sourceEfficiency", "数据提纯", "资源效率", "每级在核心迭代时额外归档约 10% 源代码。", 3, 10, 10),
+      softLevelUpgrade("baseBoost", "基础校准", "性能调校", `当前芯片基础算力 ×${Core.formatNumber(Core.baseBoostFactor(save.upgrades.baseBoost))}；10级后单级收益逐步递减。`),
+      softLevelUpgrade("fusionCalibration", "融合校准", "性能调校", `当前 MK-II 及以上算力 ×${Core.formatNumber(Core.fusionBoostFactor(save.upgrades.fusionCalibration))}；5级后进入精密校准。`),
+      softLevelUpgrade("sourceEfficiency", "数据提纯", "资源效率", `当前归档效率 ×${Core.formatNumber(Core.sourceEfficiencyFactor(save.upgrades.sourceEfficiency))}；逐渐接近双倍收益。`),
       levelUpgrade("extraReroll", "备用缓存区", "运行工具", "每级使每层换牌次数永久增加 1 次。", 2, 8, 10),
       { key: "rewardRefresh", name: "奖励重编译", category: "运行工具", cost: 10, description: "每轮可免费刷新一次层级奖励选项。", bought: save.upgrades.rewardRefresh },
       { key: "rewardExpansion", name: "并行决策器", category: "运行工具", cost: 18, description: "层级奖励从三选一扩展为四选一。", bought: save.upgrades.rewardExpansion },
       { key: "starterFusion", name: "预编译芯片", category: "启动配置", cost: 12, description: "每轮开始时随机将一对初始芯片融合为 MK-II。", bought: save.upgrades.starterFusion },
       { key: "starterModule", name: "模块快照", category: "启动配置", cost: 14, description: "每轮开始时随机安装一个基础局内模块。", bought: save.upgrades.starterModule },
+      softLevelUpgrade("corePower", "核心深度·算力", "核心深度", `最终算力每级提高 0.75%，当前 ×${Core.formatNumber(1 + save.upgrades.corePower * 0.0075)}。`, save.masteryCycles < 5),
+      softLevelUpgrade("coreArchive", "核心深度·归档", "核心深度", `源代码归档每级提高 0.5%，当前 ×${Core.formatNumber(1 + save.upgrades.coreArchive * 0.005)}。`, save.masteryCycles < 5),
     ];
   }
 
@@ -782,8 +924,8 @@
         ${upgrades.map((upgrade) => {
           const affordable = save.sourceCode >= upgrade.cost;
           return `
-            <button class="upgrade-card" data-upgrade="${upgrade.key}" ${upgrade.bought || !affordable ? "disabled" : ""}>
-              <b>${escapeHtml(upgrade.name)} · ${upgrade.bought ? (upgrade.maxLabel || "已解锁") : `${upgrade.cost} 源代码`}</b>
+            <button class="upgrade-card" data-upgrade="${upgrade.key}" ${upgrade.bought || !affordable || upgrade.locked ? "disabled" : ""}>
+              <b>${escapeHtml(upgrade.name)} · ${upgrade.locked ? "有效迭代5次后解锁" : (upgrade.bought ? (upgrade.maxLabel || "已解锁") : `${upgrade.cost} 源代码`)}</b>
               <span>${escapeHtml(upgrade.description)}</span>
             </button>
           `;
@@ -797,9 +939,9 @@
 
   function buyUpgrade(key) {
     const upgrade = upgradeDefinitions().find((item) => item.key === key);
-    if (!upgrade || upgrade.bought || save.sourceCode < upgrade.cost) return;
+    if (!upgrade || upgrade.bought || upgrade.locked || save.sourceCode < upgrade.cost) return;
     save.sourceCode -= upgrade.cost;
-    if (["baseBoost", "extraReroll", "sourceEfficiency", "fusionCalibration"].includes(key)) save.upgrades[key] += 1;
+    if (["baseBoost", "extraReroll", "sourceEfficiency", "fusionCalibration", "corePower", "coreArchive"].includes(key)) save.upgrades[key] += 1;
     else save.upgrades[key] = true;
     playTone("upgrade");
     vibrate([20, 30, 35]);
@@ -817,7 +959,420 @@
     }
     writeSave();
     renderUpgradeGrid();
+    renderMasteryGrid();
     render();
+  }
+
+  function renderMasteryGrid() {
+    const grid = elements.modal.querySelector("#mastery-grid");
+    if (!grid) return;
+    const earned = masteryPointsEarned();
+    const used = Object.values(save.mastery).reduce((sum, level) => sum + level, 0);
+    const remaining = Math.max(0, earned - used);
+    const definitions = [
+      { key: "sync", name: "同步专精", description: "触发同步类协议时，每级提高3%；每5级追加5%里程碑增益。" },
+      { key: "sequence", name: "序列专精", description: "触发连续、等距或倍增链时，每级提高3%；每5级追加5%。" },
+      { key: "fusion", name: "融合专精", description: "使用 MK-II 及以上芯片时，每级提高3%；每5级追加5%。" },
+    ];
+    grid.innerHTML = `
+      <div class="mastery-head"><b>可用专精点 ${remaining} / 累计 ${earned}</b><span>每5次有效核心迭代、每抵达10层各获得1点</span></div>
+      <div class="mastery-grid">
+        ${definitions.map((item) => {
+          const level = save.mastery[item.key];
+          return `<button class="mastery-card" data-mastery="${item.key}" ${remaining <= 0 || level >= 20 ? "disabled" : ""}>
+            <span>LV.${level} / 20</span><b>${item.name}</b><em>${item.description}</em><i style="--level:${level * 5}%"></i>
+          </button>`;
+        }).join("")}
+      </div>
+      <button class="inline-action" id="reset-mastery" ${used <= 0 ? "disabled" : ""}>免费重置全部专精点</button>
+    `;
+    grid.querySelectorAll("[data-mastery]").forEach((button) => button.addEventListener("click", () => allocateMastery(button.dataset.mastery)));
+    grid.querySelector("#reset-mastery").addEventListener("click", resetMastery);
+  }
+
+  function allocateMastery(key) {
+    if (!Object.prototype.hasOwnProperty.call(save.mastery, key)) return;
+    const used = Object.values(save.mastery).reduce((sum, level) => sum + level, 0);
+    if (used >= masteryPointsEarned() || save.mastery[key] >= 20) return;
+    save.mastery[key] += 1;
+    writeSave();
+    renderMasteryGrid();
+    showToast("核心专精已更新");
+    playTone("upgrade");
+  }
+
+  function resetMastery() {
+    save.mastery = { sync: 0, sequence: 0, fusion: 0 };
+    writeSave();
+    renderMasteryGrid();
+    showToast("专精点已全部返还");
+  }
+
+  function formatDuration(ms) {
+    const totalMinutes = Math.max(0, Math.ceil(ms / 60000));
+    if (totalMinutes < 60) return `${totalMinutes} 分钟`;
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    return minutes ? `${hours} 小时 ${minutes} 分钟` : `${hours} 小时`;
+  }
+
+  function showExpeditionHub() {
+    if (save.meta.pendingEvent) {
+      showExpeditionEvent();
+      return;
+    }
+    const status = Progression.expeditionStatus(save.meta);
+    if (status.state === "idle") {
+      const regions = Object.values(Progression.REGIONS).map((region) => `
+        <button class="region-card" data-region="${region.key}">
+          <span class="region-risk">${escapeHtml(region.risk)}</span>
+          <b>${escapeHtml(region.name)}</b>
+          <span>${escapeHtml(region.description)}</span>
+          <em>${formatDuration(region.durationMs * Progression.expeditionDurationFactor(save.meta))} · 基础 ${region.research} 研究数据</em>
+        </button>
+      `).join("");
+      showModal(`
+        <p class="eyebrow">DEEP SPACE OPERATIONS</p>
+        <h2 id="modal-title">选择远征区域</h2>
+        <p>远征与卡牌对局相互独立。派出探测单元后，可以关闭网页，倒计时仍会继续。</p>
+        <div class="region-grid">${regions}</div>
+        <div class="modal-actions"><button class="button secondary" id="close-modal">暂不派遣</button></div>
+      `);
+      elements.modal.querySelectorAll("[data-region]").forEach((button) => {
+        button.addEventListener("click", () => launchExpedition(button.dataset.region));
+      });
+      elements.modal.querySelector("#close-modal").addEventListener("click", hideModal);
+      return;
+    }
+    const region = Progression.REGIONS[save.meta.expedition.regionKey];
+    const ready = status.state === "ready";
+    showModal(`
+      <p class="eyebrow">EXPEDITION TELEMETRY</p>
+      <h2 id="modal-title">${ready ? "远征信号已返回" : "远征进行中"}</h2>
+      <div class="expedition-telemetry">
+        <span>${escapeHtml(region.risk)}</span><b>${escapeHtml(region.name)}</b>
+        <i style="--progress:${Math.round(status.progress * 100)}%"></i>
+        <em>${ready ? "等待接收探索结果" : `预计剩余 ${formatDuration(status.remainingMs)}`}</em>
+      </div>
+      <p>${ready ? "接收数据后将触发一项随机事件，你的选择会改变最终收益。" : "无需停留在页面。关闭游戏或进行卡牌对局都不会中断远征。"}</p>
+      <div class="modal-actions">
+        ${ready ? '<button class="button primary" id="claim-expedition">接收远征信号</button>' : ""}
+        <button class="button secondary" id="close-modal">返回舰桥</button>
+      </div>
+    `);
+    const claim = elements.modal.querySelector("#claim-expedition");
+    if (claim) claim.addEventListener("click", claimExpedition);
+    elements.modal.querySelector("#close-modal").addEventListener("click", hideModal);
+  }
+
+  function launchExpedition(regionKey) {
+    if (save.meta.expedition || save.meta.pendingEvent || !Progression.REGIONS[regionKey]) return;
+    save.meta.expedition = Progression.startExpedition(regionKey, Date.now(), undefined, Progression.expeditionDurationFactor(save.meta));
+    const region = Progression.REGIONS[regionKey];
+    setMessage(`远征单元已前往${region.name}。`);
+    showToast(`${region.name}远征已启动`);
+    playTone("start");
+    spawnParticles(12);
+    hideModal();
+    render();
+    writeSave();
+  }
+
+  function claimExpedition() {
+    const pending = Progression.prepareExpeditionResult(save.meta);
+    if (!pending) return;
+    save.meta.pendingEvent = pending;
+    save.meta.expedition = null;
+    writeSave();
+    showExpeditionEvent();
+  }
+
+  function showExpeditionEvent() {
+    const pending = save.meta.pendingEvent;
+    const event = pending && Progression.EVENTS[pending.eventKey];
+    if (!event) {
+      save.meta.pendingEvent = null;
+      writeSave();
+      showExpeditionHub();
+      return;
+    }
+    const choices = event.choices.map((choice) => `
+      <button class="event-choice" data-event-choice="${choice.key}">
+        <b>${escapeHtml(choice.label)}</b><span>${escapeHtml(choice.detail)}</span>
+      </button>
+    `).join("");
+    showModal(`
+      <p class="eyebrow">ANOMALY DETECTED</p>
+      <h2 id="modal-title">${escapeHtml(event.title)}</h2>
+      <div class="event-illustration"><i></i><b>UNKNOWN SIGNAL</b></div>
+      <p class="lead">${escapeHtml(event.text)}</p>
+      <p>已回收基础数据：<b class="accent">${pending.baseResearch}</b>。选择处理方式：</p>
+      <div class="event-choice-grid">${choices}</div>
+    `);
+    elements.modal.querySelectorAll("[data-event-choice]").forEach((button) => {
+      button.addEventListener("click", () => resolveExpeditionEvent(button.dataset.eventChoice));
+    });
+  }
+
+  function resolveExpeditionEvent(choiceKey) {
+    const result = Progression.resolveEvent(save.meta.pendingEvent, choiceKey);
+    if (!result) return;
+    save.meta.researchData += result.research;
+    save.sourceCode += result.source;
+    save.meta.totalExpeditions += 1;
+    save.meta.stats.researchEarned += result.research;
+    Progression.progressDaily(save.meta, "expedition", 1);
+    Progression.progressDaily(save.meta, "research", result.research);
+    if (!save.meta.discoveredEvents.includes(result.eventKey)) save.meta.discoveredEvents.push(result.eventKey);
+    save.meta.pendingEvent = null;
+    writeSave();
+    render();
+    showModal(`
+      <p class="eyebrow">EXPEDITION COMPLETE</p>
+      <h2 id="modal-title">远征数据已归档</h2>
+      <p>${escapeHtml(result.choiceLabel)}。远征结果已写入长期进度。</p>
+      <div class="stat-summary">
+        <div><span>研究数据</span><b>+${result.research}</b></div>
+        <div><span>永久源代码</span><b>+${result.source}</b></div>
+        <div><span>累计远征</span><b>${save.meta.totalExpeditions}</b></div>
+      </div>
+      <div class="modal-actions"><button class="button primary" id="close-modal">返回舰桥</button></div>
+    `);
+    elements.modal.querySelector("#close-modal").addEventListener("click", hideModal);
+    playTone("success");
+    vibrate([25, 25, 45]);
+    spawnParticles(22);
+  }
+
+  function showTechTree() {
+    const totalLevel = Progression.techTotal(save.meta);
+    const cards = Object.values(Progression.TECHS).map((tech) => {
+      const level = save.meta.technologies[tech.key];
+      const full = level >= tech.max;
+      const cost = Progression.techCost(tech.key, level);
+      const affordable = save.meta.researchData >= cost;
+      const nextMilestoneLevel = Math.min(20, (Math.floor(level / 5) + 1) * 5);
+      const milestone = level >= 20 ? "全部里程碑完成" : `${nextMilestoneLevel}级：${tech.milestones[nextMilestoneLevel / 5 - 1]}`;
+      return `
+        <button class="tech-card" data-tech="${tech.key}" ${full || !affordable ? "disabled" : ""}>
+          <span class="tech-level">LV.${level} / ${tech.max}</span>
+          <b>${escapeHtml(tech.name)}</b>
+          <span>${escapeHtml(tech.description)}</span>
+          <small>${escapeHtml(milestone)}</small>
+          <em>${full ? "已完成" : `${cost} 研究数据`}</em>
+          <i style="--level:${(level / tech.max) * 100}%"></i>
+        </button>
+      `;
+    }).join("");
+    const frontierOpen = Progression.frontierUnlocked(save.meta);
+    const frontierCards = Object.values(Progression.FRONTIER).map((item) => {
+      const level = save.meta.frontier[item.key];
+      const cost = Progression.frontierCost(item.key, level);
+      return `<button class="frontier-card" data-frontier="${item.key}" ${!frontierOpen || save.meta.researchData < cost ? "disabled" : ""}>
+        <span>FRONTIER / LV.${level}</span><b>${escapeHtml(item.name)}</b><em>${escapeHtml(item.description)}</em><strong>${frontierOpen ? `${cost} 研究数据` : "总科技60级后解锁"}</strong>
+      </button>`;
+    }).join("");
+    showModal(`
+      <p class="eyebrow">RESEARCH MATRIX</p>
+      <h2 id="modal-title">科技矩阵</h2>
+      <div class="currency-explain"><b>研究数据：${save.meta.researchData}</b><span>主矩阵 ${totalLevel} / 80 级；每5级获得里程碑，总等级60后开放近似无限的前沿研究。</span></div>
+      <div class="tech-grid">${cards}</div>
+      <h3>前沿研究</h3>
+      <div class="frontier-grid ${frontierOpen ? "unlocked" : "locked"}">${frontierCards}</div>
+      <div class="modal-actions"><button class="button secondary" id="close-modal">返回舰桥</button></div>
+    `);
+    elements.modal.querySelectorAll("[data-tech]").forEach((button) => {
+      button.addEventListener("click", () => buyTechnology(button.dataset.tech));
+    });
+    elements.modal.querySelectorAll("[data-frontier]").forEach((button) => {
+      button.addEventListener("click", () => buyFrontier(button.dataset.frontier));
+    });
+    elements.modal.querySelector("#close-modal").addEventListener("click", hideModal);
+  }
+
+  function buyTechnology(key) {
+    const tech = Progression.TECHS[key];
+    const level = tech ? save.meta.technologies[key] : 0;
+    const cost = Progression.techCost(key, level);
+    if (!tech || level >= tech.max || save.meta.researchData < cost) return;
+    save.meta.researchData -= cost;
+    save.meta.technologies[key] += 1;
+    writeSave();
+    render();
+    showToast(`${tech.name}升级至 LV.${level + 1}`);
+    playTone("upgrade");
+    spawnParticles(10);
+    showTechTree();
+  }
+
+  function buyFrontier(key) {
+    const item = Progression.FRONTIER[key];
+    const level = item ? save.meta.frontier[key] : 0;
+    const cost = Progression.frontierCost(key, level);
+    if (!item || !Progression.frontierUnlocked(save.meta) || save.meta.researchData < cost || level >= 999) return;
+    save.meta.researchData -= cost;
+    save.meta.frontier[key] += 1;
+    writeSave();
+    render();
+    showToast(`${item.name}推进至 LV.${level + 1}`);
+    playTone("upgrade");
+    showTechTree();
+  }
+
+  function dailyRewardAmount(definition) {
+    return Math.max(definition.reward, Math.ceil(definition.reward * Progression.dailyRewardFactor(save.meta)));
+  }
+
+  function showDailyMissions() {
+    const daily = Progression.ensureDaily(save.meta);
+    const taskHtml = daily.tasks.map((task) => {
+      const definition = Progression.DAILY_TASKS[task.key];
+      const complete = task.progress >= task.target;
+      const percent = Math.min(100, Math.round((task.progress / task.target) * 100));
+      return `
+        <article class="daily-card ${complete ? "complete" : ""} ${task.claimed ? "claimed" : ""}">
+          <div><span>${task.claimed ? "已归档" : (complete ? "等待领取" : "行动进行中")}</span><b>${escapeHtml(definition.name)}</b></div>
+          <p>${escapeHtml(definition.description)}</p>
+          <div class="daily-progress"><i style="width:${percent}%"></i></div>
+          <footer><em>${Math.floor(task.progress)} / ${task.target}</em><strong>+${dailyRewardAmount(definition)} 研究数据</strong></footer>
+          ${complete && !task.claimed ? `<button class="button primary daily-claim" data-daily-claim="${task.key}">领取奖励</button>` : ""}
+        </article>
+      `;
+    }).join("");
+    const claimed = daily.tasks.filter((task) => task.claimed).length;
+    showModal(`
+      <p class="eyebrow">DAILY OPERATIONS / ${daily.date}</p>
+      <h2 id="modal-title">每日行动清单</h2>
+      <p>每天生成三项轻量行动。进度会随正常游玩自动记录，不需要额外重复操作。</p>
+      <div class="daily-grid">${taskHtml}</div>
+      <div class="daily-footer-note"><b>${claimed} / 3 已归档</b><span>每日 00:00 UTC 刷新；离线时会使用设备日期，重新联网后自动校准。</span></div>
+      <div class="modal-actions"><button class="button secondary" id="close-modal">返回舰桥</button></div>
+    `);
+    elements.modal.querySelectorAll("[data-daily-claim]").forEach((button) => {
+      button.addEventListener("click", () => claimDailyReward(button.dataset.dailyClaim));
+    });
+    elements.modal.querySelector("#close-modal").addEventListener("click", hideModal);
+  }
+
+  function claimDailyReward(key) {
+    const daily = Progression.ensureDaily(save.meta);
+    const task = daily.tasks.find((item) => item.key === key);
+    const definition = task && Progression.DAILY_TASKS[key];
+    if (!task || !definition || task.claimed || task.progress < task.target) return;
+    task.claimed = true;
+    const reward = dailyRewardAmount(definition);
+    save.meta.researchData += reward;
+    save.meta.stats.researchEarned += reward;
+    Progression.progressDaily(save.meta, "research", reward);
+    writeSave();
+    render();
+    showToast(`行动归档：+${reward} 研究数据`);
+    playTone("upgrade");
+    showDailyMissions();
+  }
+
+  function achievementIsUnlocked(key) {
+    return Progression.achievementUnlocked(key, save.meta, { bestStage: save.bestStage, totalIterations: save.totalIterations });
+  }
+
+  function claimableAchievementCount() {
+    return Object.keys(Progression.ACHIEVEMENTS).filter((key) => achievementIsUnlocked(key) && !save.meta.claimedAchievements.includes(key)).length;
+  }
+
+  function showArchive() {
+    const discoveries = save.meta.discoveries;
+    const protocolHtml = discoveries.protocols.length
+      ? discoveries.protocols.map((name) => `<span class="archive-chip">${escapeHtml(name)}</span>`).join("")
+      : '<span class="archive-empty">尚未记录协议</span>';
+    const moduleHtml = discoveries.modules.length
+      ? discoveries.modules.map((key) => `<span class="archive-chip violet">${escapeHtml(Core.MODULES[key] ? Core.MODULES[key].name : key)}</span>`).join("")
+      : '<span class="archive-empty">尚未记录模块</span>';
+    const chipHtml = discoveries.chipLevels.map((level) => `<span class="archive-chip green">CHIP MK-${roman(level)}</span>`).join("");
+    const eventHtml = save.meta.discoveredEvents.length
+      ? save.meta.discoveredEvents.map((key) => `<span class="archive-chip amber">${escapeHtml(Progression.EVENTS[key].title)}</span>`).join("")
+      : '<span class="archive-empty">尚未发现远征异常</span>';
+    const achievements = Object.values(Progression.ACHIEVEMENTS).map((achievement) => {
+      const claimed = save.meta.claimedAchievements.includes(achievement.key);
+      const unlocked = achievementIsUnlocked(achievement.key);
+      return `
+        <article class="achievement-card ${unlocked ? "unlocked" : "locked"} ${claimed ? "claimed" : ""}">
+          <i>${claimed ? "✓" : (unlocked ? "!" : "◇")}</i>
+          <div><b>${escapeHtml(achievement.name)}</b><span>${escapeHtml(achievement.description)}</span><em>奖励：${achievement.rewardResearch} 研究数据${achievement.rewardSource ? ` + ${achievement.rewardSource} 源代码` : ""}</em></div>
+          ${unlocked && !claimed ? `<button data-achievement="${achievement.key}">领取</button>` : ""}
+        </article>
+      `;
+    }).join("");
+    showModal(`
+      <p class="eyebrow">ARCHIVE MATRIX</p>
+      <h2 id="modal-title">协议档案与统计</h2>
+      <div class="archive-stats">
+        <div><span>协议运算</span><b>${save.meta.stats.plays.toLocaleString("zh-CN")}</b></div>
+        <div><span>最高输出</span><b>${save.meta.stats.highestScore.toLocaleString("zh-CN")}</b></div>
+        <div><span>层级突破</span><b>${save.meta.stats.stagesCleared.toLocaleString("zh-CN")}</b></div>
+        <div><span>累计远征</span><b>${save.meta.totalExpeditions.toLocaleString("zh-CN")}</b></div>
+        <div><span>超频次数</span><b>${save.meta.stats.overclocks.toLocaleString("zh-CN")}</b></div>
+        <div><span>离线研究</span><b>${save.meta.stats.offlineResearch.toLocaleString("zh-CN")}</b></div>
+      </div>
+      <h3>探索图鉴</h3>
+      <section class="archive-section"><b>数字协议</b><div>${protocolHtml}</div></section>
+      <section class="archive-section"><b>芯片等级</b><div>${chipHtml}</div></section>
+      <section class="archive-section"><b>局内模块</b><div>${moduleHtml}</div></section>
+      <section class="archive-section"><b>远征异常</b><div>${eventHtml}</div></section>
+      <h3>成就信标</h3>
+      <div class="achievement-grid">${achievements}</div>
+      <div class="modal-actions"><button class="button secondary" id="close-modal">返回舰桥</button></div>
+    `);
+    elements.modal.querySelectorAll("[data-achievement]").forEach((button) => {
+      button.addEventListener("click", () => claimAchievement(button.dataset.achievement));
+    });
+    elements.modal.querySelector("#close-modal").addEventListener("click", hideModal);
+  }
+
+  function claimAchievement(key) {
+    const achievement = Progression.ACHIEVEMENTS[key];
+    if (!achievement || !achievementIsUnlocked(key) || save.meta.claimedAchievements.includes(key)) return;
+    save.meta.claimedAchievements.push(key);
+    save.meta.researchData += achievement.rewardResearch;
+    save.meta.stats.researchEarned += achievement.rewardResearch;
+    save.sourceCode += achievement.rewardSource;
+    Progression.progressDaily(save.meta, "research", achievement.rewardResearch);
+    writeSave();
+    render();
+    showToast(`成就解锁：${achievement.name}`);
+    playTone("success");
+    spawnParticles(16);
+    showArchive();
+  }
+
+  function showMetaTutorial(step = 0) {
+    const pages = [
+      { kicker: "01 / PASSIVE RESEARCH", title: "离线也会持续研究", text: "关闭网页后，系统仍会按照时间积累研究数据。基础最多累计 8 小时，科技可以提高效率和上限。", label: "下一步：深空远征" },
+      { kicker: "02 / EXPEDITION", title: "派遣远征并作出选择", text: "选择星区后无需停留在页面。远征结束会遇到随机事件，不同决策会改变研究数据与永久源代码收益。", label: "下一步：每日行动" },
+      { kicker: "03 / DAILY & ARCHIVE", title: "每天推进一点长期目标", text: "每日行动随正常游玩自动完成。协议档案会记录发现、统计和成就；研究数据则用于升级科技矩阵。", label: "完成引导" },
+    ];
+    const page = pages[Math.min(pages.length - 1, Math.max(0, step))];
+    showModal(`
+      <p class="eyebrow">LONG-TERM SYSTEM / ${page.kicker}</p>
+      <h2 id="modal-title">${page.title}</h2>
+      <div class="meta-tutorial-visual step-${step + 1}"><i></i><b>${String(step + 1).padStart(2, "0")}</b></div>
+      <p class="lead">${page.text}</p>
+      <div class="modal-actions">
+        <button class="button primary" id="meta-tutorial-next">${page.label}</button>
+        <button class="button secondary" id="meta-tutorial-skip">跳过新版引导</button>
+      </div>
+    `);
+    elements.modal.querySelector("#meta-tutorial-next").addEventListener("click", () => {
+      if (step < pages.length - 1) showMetaTutorial(step + 1);
+      else finishMetaTutorial();
+    });
+    elements.modal.querySelector("#meta-tutorial-skip").addEventListener("click", finishMetaTutorial);
+  }
+
+  function finishMetaTutorial() {
+    save.meta.tutorialV04Seen = true;
+    writeSave();
+    if (state.active) hideModal();
+    else showIntro();
   }
 
   function requestIteration() {
@@ -860,7 +1415,7 @@
 
   function showHelp() {
     showModal(`
-      <p class="eyebrow">PROTOCOL MANUAL / v0.2</p>
+      <p class="eyebrow">PROTOCOL MANUAL / v0.4.1</p>
       <h2 id="modal-title">教程与术语</h2>
       <h3>一句话目标</h3>
       <p class="lead">每层有 3 次运算机会。组合数字芯片，让累计算力达到目标。</p>
@@ -872,6 +1427,11 @@
         <li><b>待归档缓存：</b>本轮通关获得、尚未转换成永久货币的源代码。</li>
         <li><b>永久源代码：</b>核心迭代后保留，用来购买永久生效的迭代增益。</li>
         <li><b>核心迭代：</b>结束本轮临时构筑，归档源代码并进入永久升级。</li>
+        <li><b>研究数据：</b>通过离线采集和远征获得，用于升级长期科技，不会在核心迭代时重置。</li>
+        <li><b>远征：</b>派遣探测单元探索星区；关闭网页后计时仍会继续，返回时触发随机事件。</li>
+        <li><b>核心专精：</b>有效核心迭代和最高层级会提供专精点，可强化同步、序列或融合流派，并可免费重置。</li>
+        <li><b>有效核心迭代：</b>主动启动核心迭代，或至少完成一层后再结算；第一层直接失败不会累计专精进度。</li>
+        <li><b>前沿研究：</b>主科技达到60级后开放的长期资源出口，成本递增、效果递减，近似无限成长。</li>
       </ul>
       <h3>基础协议</h3>
       <ul class="rule-list compact">
@@ -882,6 +1442,7 @@
       </ul>
       <div class="modal-actions">
         <button class="button primary" id="replay-tutorial">重新开始互动教程</button>
+        <button class="button secondary" id="replay-meta-tutorial">查看长期玩法引导</button>
         <button class="button secondary" id="close-modal">返回游戏</button>
       </div>
     `);
@@ -889,6 +1450,7 @@
       if (state.active && !window.confirm("重新教学会结束当前未完成的一轮，是否继续？")) return;
       startRun(true);
     });
+    elements.modal.querySelector("#replay-meta-tutorial").addEventListener("click", () => showMetaTutorial(0));
     elements.modal.querySelector("#close-modal").addEventListener("click", hideModal);
   }
 
@@ -898,6 +1460,7 @@
       <h2 id="modal-title">永久源代码是什么？</h2>
       <div class="term-callout"><b>永久源代码</b><span>游戏的长期升级货币，不会因为失败或关闭网页而消失。</span></div>
       <p>通关层级会先获得“待归档”源代码。启动核心迭代或本轮失败后，它们会归档到这里。随后可以购买协议解锁、性能调校和运行工具。</p>
+      <p>性能调校采用递减收益的软上限；完成5次有效迭代后还会开放指数涨价的“核心深度”，因此后期源代码始终有稳定用途。</p>
       <p>当前拥有：<b class="accent">${save.sourceCode}</b> 段永久源代码。</p>
       <div class="modal-actions"><button class="button primary" id="close-modal">明白了</button></div>
     `);
@@ -918,15 +1481,16 @@
   function showIntro() {
     const returning = save.tutorialVersion >= TUTORIAL_VERSION;
     showModal(`
-      <p class="eyebrow">BOOT SEQUENCE / v0.2</p>
+      <p class="eyebrow">BOOT SEQUENCE / v0.4.1</p>
       <h2 id="modal-title">欢迎接入《无限协议》</h2>
       <p class="lead">组合数字芯片、安装局内模块，在一次次核心迭代中解锁新规则。</p>
-      ${returning ? '<p>v0.2 已加入精确计分明细、更多迭代增益、自动恢复当前对局和 PWA 安装。</p>' : `
+      ${returning ? '<p>v0.4.1 已扩展核心专精、软上限成长、80级科技矩阵与前沿研究。卡牌对局和远征可以同时推进。</p>' : `
         <div class="onboarding-terms">
           <div><b>算力</b><span>本层需要达到的分数</span></div>
           <div><b>协议</b><span>数字组合产生的倍率</span></div>
           <div><b>局内模块</b><span>只在本轮生效的规则</span></div>
           <div><b>源代码</b><span>购买永久增益的货币</span></div>
+          <div><b>研究数据</b><span>离线与远征科技资源</span></div>
         </div>
       `}
       <div class="modal-actions">
@@ -1148,6 +1712,55 @@
     elements.rerollButton.classList.toggle("tutorial-focus", state.tutorialMode && state.tutorialStep === "reroll" && hasSelection);
   }
 
+  function renderMetaDashboard() {
+    const meta = save.meta;
+    const daily = Progression.ensureDaily(meta);
+    const status = Progression.expeditionStatus(meta);
+    const techLevels = Progression.techTotal(meta);
+    const techMax = Object.values(Progression.TECHS).reduce((sum, tech) => sum + tech.max, 0);
+    const automationLevel = meta.technologies.autonomousDrones;
+    const offlineRate = 6 * (1 + Math.min(automationLevel, 5) * 0.2 + Math.max(automationLevel - 5, 0) * 0.06) * (1 + 0.015 * Math.sqrt(meta.frontier.offline));
+    elements.researchData.textContent = meta.researchData.toLocaleString("zh-CN");
+    elements.offlineRate.textContent = `${Number(offlineRate.toFixed(1))} / 小时`;
+    elements.techProgress.textContent = `${techLevels} / ${techMax}`;
+    const finishedTasks = daily.tasks.filter((task) => task.progress >= task.target).length;
+    const claimedTasks = daily.tasks.filter((task) => task.claimed).length;
+    const readyTasks = daily.tasks.filter((task) => task.progress >= task.target && !task.claimed).length;
+    elements.dailySummary.textContent = `每日行动 ${claimedTasks} / 3`;
+    elements.dailyHint.textContent = readyTasks > 0 ? `${readyTasks} 项奖励等待领取` : (finishedTasks === 3 ? "今日行动已全部完成" : "完成行动以获取研究数据");
+    elements.dailyButton.classList.toggle("ready", readyTasks > 0);
+    const discoveryCount = meta.discoveries.protocols.length + meta.discoveries.modules.length + meta.discoveries.chipLevels.length + meta.discoveredEvents.length;
+    elements.archiveProgress.textContent = `${discoveryCount} 项记录`;
+    const claimable = claimableAchievementCount();
+    elements.achievementAlert.classList.toggle("hidden", claimable === 0);
+    elements.achievementAlert.textContent = claimable > 9 ? "9+" : String(claimable || "!");
+    elements.expeditionProgress.style.width = `${Math.round(status.progress * 100)}%`;
+    elements.expeditionButton.classList.toggle("ready", status.state === "ready" || Boolean(meta.pendingEvent));
+    if (meta.pendingEvent) {
+      elements.expeditionHeadline.textContent = "检测到未知异常";
+      elements.expeditionSummary.textContent = "远征数据等待你的最终决策。";
+      elements.expeditionAction.textContent = "处理事件";
+      elements.expeditionProgress.style.width = "100%";
+      return;
+    }
+    if (status.state === "idle") {
+      elements.expeditionHeadline.textContent = "远征中枢待命";
+      elements.expeditionSummary.textContent = "派遣探测单元，在离线期间持续带回研究数据。";
+      elements.expeditionAction.textContent = "选择区域";
+      return;
+    }
+    const region = Progression.REGIONS[meta.expedition.regionKey];
+    if (status.state === "ready") {
+      elements.expeditionHeadline.textContent = `${region.name}信号已返回`;
+      elements.expeditionSummary.textContent = "探索记录完整，等待接收与事件决策。";
+      elements.expeditionAction.textContent = "接收信号";
+    } else {
+      elements.expeditionHeadline.textContent = `正在探索 · ${region.name}`;
+      elements.expeditionSummary.textContent = `预计剩余 ${formatDuration(status.remainingMs)}，关闭网页也会继续。`;
+      elements.expeditionAction.textContent = `${Math.round(status.progress * 100)}%`;
+    }
+  }
+
   function render() {
     elements.sourceCode.textContent = save.sourceCode.toLocaleString("zh-CN");
     elements.stageValue.textContent = String(state.stage).padStart(2, "0");
@@ -1168,6 +1781,7 @@
     renderHand();
     renderPreview();
     renderCoach();
+    renderMetaDashboard();
   }
 
   function showModal(html) {
@@ -1315,6 +1929,10 @@
   elements.runDataHelp.addEventListener("click", showRunDataHelp);
   elements.accountButton.addEventListener("click", showSaveManager);
   elements.saveManagerButton.addEventListener("click", showSaveManager);
+  elements.expeditionButton.addEventListener("click", showExpeditionHub);
+  elements.techButton.addEventListener("click", showTechTree);
+  elements.dailyButton.addEventListener("click", showDailyMissions);
+  elements.archiveButton.addEventListener("click", showArchive);
   elements.coachSkip.addEventListener("click", skipTutorial);
   elements.installButton.addEventListener("click", installPwa);
   elements.soundButton.addEventListener("click", () => {
@@ -1336,8 +1954,9 @@
   });
   window.addEventListener("online", updateConnectionState);
   window.addEventListener("offline", updateConnectionState);
-  document.addEventListener("visibilitychange", () => { if (document.hidden) writeSave(); });
+  document.addEventListener("visibilitychange", () => { if (document.hidden) writeSave(); else renderMetaDashboard(); });
   window.addEventListener("pagehide", writeSave);
+  window.setInterval(renderMetaDashboard, 30000);
 
   setupPwa();
   updateConnectionState();
@@ -1347,6 +1966,7 @@
       getSave: currentSaveCopy,
       replaceSave: replaceSaveFromCloud,
       setCloudState,
+      setTrustedTime,
       notify: showToast,
     });
   }
@@ -1355,7 +1975,15 @@
     sessionStorage.removeItem("infinite-protocol-cloud-message");
     showToast(cloudMessage);
   }
+  if (offlineReport.amount > 0) {
+    window.setTimeout(() => {
+      showToast(`离线采集完成：+${offlineReport.amount} 研究数据`);
+      setMessage(`自治采集阵列在离线期间回收了 ${offlineReport.amount} 研究数据。`);
+      writeSave();
+    }, 550);
+  }
   if (save.lastSavedAt) updateSaveStatus("已读取存档");
   if (save.runSnapshot && save.runSnapshot.active) showResumeModal();
+  else if (!save.meta.tutorialV04Seen) showMetaTutorial(0);
   else showIntro();
 })();
